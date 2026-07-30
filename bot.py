@@ -979,23 +979,41 @@ def parse_github_repo(remote_url):
 
 
 def latest_github_release_tag(repo, timeout_seconds):
-    output = run_gh(
-        [
-            "release",
-            "list",
-            "--repo",
-            repo,
-            "--limit",
-            "1",
-            "--json",
-            "tagName",
-        ],
-        timeout_seconds,
-    )
-    releases = json.loads(output)
-    if not releases:
-        return ""
-    return str(releases[0].get("tagName") or "").strip()
+    try:
+        output = run_gh(
+            [
+                "release",
+                "list",
+                "--repo",
+                repo,
+                "--limit",
+                "1",
+                "--json",
+                "tagName",
+            ],
+            timeout_seconds,
+        )
+        releases = json.loads(output)
+        if not releases:
+            return ""
+        return str(releases[0].get("tagName") or "").strip()
+    except RuntimeError:
+        output = run_gh(
+            ["release", "list", "--repo", repo, "--limit", "1"],
+            timeout_seconds,
+        )
+        return parse_release_list_tag(output)
+
+
+def parse_release_list_tag(output):
+    for line in output.splitlines():
+        parts = [part.strip() for part in line.split("\t") if part.strip()]
+        if len(parts) >= 3:
+            return parts[2]
+        for part in parts:
+            if part.startswith("v") and any(character.isdigit() for character in part):
+                return part
+    return ""
 
 
 def remote_branch_head(remote, branch, timeout_seconds):
