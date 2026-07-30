@@ -146,6 +146,7 @@ Example:
   },
   "updates": {
     "check_on_start": true,
+    "strategy": "github_release",
     "remote": "origin",
     "branch": "",
     "timeout_seconds": 3
@@ -263,16 +264,25 @@ present in `weights`.
 
 ## Update Checks
 
-`updates.check_on_start` controls whether the script checks Git for a newer
-version when it starts.
+`updates.check_on_start` controls whether the script checks for a newer version
+when it starts.
 
-The check is read-only. It compares local `HEAD` with the configured remote
-branch and prints a message if a newer version exists. It does not run
-`git pull` or change any files.
+The check is read-only. It prints a message if a newer version exists, but it
+does not run `git pull` or change any files.
 
-`updates.remote` is usually `origin`. `updates.branch` can be left empty to use
-the current branch, or set to a specific branch name. `updates.timeout_seconds`
-keeps startup from waiting too long if the network is slow.
+`updates.strategy` controls what "newer" means:
+
+- `github_release`: compares the local version tag with the latest GitHub
+  release from `gh release list`
+- `git_remote_branch`: compares local `HEAD` with a remote Git branch
+
+`github_release` needs GitHub CLI (`gh`) and is the default strategy.
+
+`updates.remote` is usually `origin`. For `github_release`, the script uses it
+to discover the GitHub repository. For `git_remote_branch`, `updates.branch`
+can be left empty to use the current branch, or set to a specific branch name.
+`updates.timeout_seconds` keeps startup from waiting too long if the network is
+slow.
 
 ## Behavior
 

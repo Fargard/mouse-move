@@ -28,9 +28,11 @@ DEFAULT_MOUSE_ENABLED = True
 DEFAULT_SPACES_ENABLED = True
 DEFAULT_SAME_DISPLAY_ONLY = True
 DEFAULT_UPDATE_CHECK_ON_START = True
+DEFAULT_UPDATE_STRATEGY = "github_release"
 DEFAULT_UPDATE_REMOTE = "origin"
 DEFAULT_UPDATE_BRANCH = ""
 DEFAULT_UPDATE_TIMEOUT_SECONDS = 3
+UPDATE_STRATEGIES = {"github_release", "git_remote_branch"}
 CONFIG_PATH = "config.json"
 POLL_INTERVAL_SECONDS = 1
 SPACE_SWITCH_STEP_SECONDS = 0.8
@@ -278,6 +280,7 @@ class DebugConfig:
 @dataclass
 class UpdateConfig:
     check_on_start: bool
+    strategy: str
     remote: str
     branch: str
     timeout_seconds: float
@@ -839,6 +842,7 @@ def summarize_config_changes(old_config, new_config):
             old_config.updates.check_on_start,
             new_config.updates.check_on_start,
         ),
+        ("updates.strategy", old_config.updates.strategy, new_config.updates.strategy),
         ("updates.remote", old_config.updates.remote, new_config.updates.remote),
         ("updates.branch", old_config.updates.branch, new_config.updates.branch),
         (
@@ -871,6 +875,43 @@ def check_for_updates(update_config, debug):
     if not update_config.check_on_start:
         return
 
+    if update_config.strategy == "github_release":
+        check_for_release_updates(update_config, debug)
+        return
+    if update_config.strategy == "git_remote_branch":
+        check_for_branch_updates(update_config, debug)
+        return
+
+    debug_log(debug, f"Update check skipped: unknown strategy {update_config.strategy}.")
+
+
+def check_for_release_updates(update_config, debug):
+    try:
+        current_tag = current_version_tag(update_config.timeout_seconds)
+        repo = github_repo_from_remote(
+            update_config.remote,
+            update_config.timeout_seconds,
+        )
+        latest_tag = latest_github_release_tag(repo, update_config.timeout_seconds)
+    except RuntimeError as error:
+        debug_log(debug, f"Update check skipped: {error}")
+        return
+
+    if not latest_tag:
+        debug_log(debug, "Update check skipped: no GitHub releases found.")
+        return
+
+    if latest_tag != current_tag:
+        print(
+            "Update available: "
+            f"GitHub release {latest_tag} is newer than local {current_tag}. "
+            "Run `git pull` when convenient."
+        )
+    else:
+        debug_log(debug, "Update check: local release is up to date.")
+
+
+def check_for_branch_updates(update_config, debug):
     try:
         local_head = run_git(
             ["rev-parse", "HEAD"],
@@ -903,6 +944,60 @@ def check_for_updates(update_config, debug):
         debug_log(debug, "Update check: local version is up to date.")
 
 
+def current_version_tag(timeout_seconds):
+    try:
+        return run_git(["describe", "--tags", "--exact-match", "HEAD"], timeout_seconds)
+    except RuntimeError:
+        pass
+
+    try:
+        return run_git(["describe", "--tags", "--abbrev=0"], timeout_seconds)
+    except RuntimeError:
+        return "untagged"
+
+
+def github_repo_from_remote(remote, timeout_seconds):
+    remote_url = run_git(["remote", "get-url", remote], timeout_seconds)
+    repo = parse_github_repo(remote_url)
+    if not repo:
+        raise RuntimeError(f"remote {remote} is not a GitHub repository")
+    return repo
+
+
+def parse_github_repo(remote_url):
+    clean_url = remote_url.strip()
+    if clean_url.endswith(".git"):
+        clean_url = clean_url[:-4]
+
+    https_prefix = "https://github.com/"
+    ssh_prefix = "git@github.com:"
+    if clean_url.startswith(https_prefix):
+        return clean_url[len(https_prefix):]
+    if clean_url.startswith(ssh_prefix):
+        return clean_url[len(ssh_prefix):]
+    return ""
+
+
+def latest_github_release_tag(repo, timeout_seconds):
+    output = run_gh(
+        [
+            "release",
+            "list",
+            "--repo",
+            repo,
+            "--limit",
+            "1",
+            "--json",
+            "tagName",
+        ],
+        timeout_seconds,
+    )
+    releases = json.loads(output)
+    if not releases:
+        return ""
+    return str(releases[0].get("tagName") or "").strip()
+
+
 def remote_branch_head(remote, branch, timeout_seconds):
     output = run_git(["ls-remote", remote, branch], timeout_seconds)
     for line in output.splitlines():
@@ -927,6 +1022,28 @@ def run_git(args, timeout_seconds):
         raise RuntimeError("git is not installed or not available in PATH") from error
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("git command timed out") from error
+    except subprocess.CalledProcessError as error:
+        message = error.stderr.strip() or str(error)
+        raise RuntimeError(message) from error
+
+    return result.stdout.strip()
+
+
+def run_gh(args, timeout_seconds):
+    try:
+        result = subprocess.run(
+            ["gh", *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "GitHub CLI is not installed or not available in PATH"
+        ) from error
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("GitHub CLI command timed out") from error
     except subprocess.CalledProcessError as error:
         message = error.stderr.strip() or str(error)
         raise RuntimeError(message) from error
@@ -1022,6 +1139,7 @@ def parse_config(config):
             "check_on_start",
             DEFAULT_UPDATE_CHECK_ON_START,
         ),
+        strategy=string_at(updates, "strategy", DEFAULT_UPDATE_STRATEGY),
         remote=string_at(updates, "remote", DEFAULT_UPDATE_REMOTE),
         branch=string_at(updates, "branch", DEFAULT_UPDATE_BRANCH),
         timeout_seconds=number_at(
@@ -1109,6 +1227,9 @@ def validate_config(config):
         raise ValueError("spaces.switch_step_seconds must be greater than 0")
     if not config.updates.remote:
         raise ValueError("updates.remote cannot be empty")
+    if config.updates.strategy not in UPDATE_STRATEGIES:
+        strategies = ", ".join(sorted(UPDATE_STRATEGIES))
+        raise ValueError(f"updates.strategy must be one of: {strategies}")
     if config.updates.timeout_seconds <= 0:
         raise ValueError("updates.timeout_seconds must be greater than 0")
 

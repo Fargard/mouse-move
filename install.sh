@@ -66,6 +66,7 @@ create_config() {
   },
   "updates": {
     "check_on_start": true,
+    "strategy": "github_release",
     "remote": "origin",
     "branch": "",
     "timeout_seconds": 3
