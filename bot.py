@@ -751,7 +751,7 @@ def reload_config_if_changed(loaded_config):
     try:
         modified_at = config_path.stat().st_mtime_ns
     except OSError as error:
-        print(f"Config reload skipped: {error}.")
+        print(f"Could not check config.json: {error}.")
         return loaded_config, False
 
     if modified_at == loaded_config.modified_at:
@@ -760,10 +760,13 @@ def reload_config_if_changed(loaded_config):
     try:
         reloaded_config = load_config()
     except RuntimeError as error:
-        print(f"Config reload failed. Keeping previous config. {error}")
+        print(
+            "Config reload failed. Keeping the previous valid config. "
+            f"{error}"
+        )
         return LoadedConfig(loaded_config.config, modified_at), False
 
-    print("Config reloaded.")
+    print("Config reloaded. New settings accepted.")
     for change in summarize_config_changes(loaded_config.config, reloaded_config):
         print(f"  {change}")
     return LoadedConfig(reloaded_config, modified_at), True
@@ -882,7 +885,10 @@ def check_for_updates(update_config, debug):
         check_for_branch_updates(update_config, debug)
         return
 
-    debug_log(debug, f"Update check skipped: unknown strategy {update_config.strategy}.")
+    debug_log(
+        debug,
+        f"Update check skipped: unknown strategy {update_config.strategy}.",
+    )
 
 
 def check_for_release_updates(update_config, debug):
@@ -903,9 +909,10 @@ def check_for_release_updates(update_config, debug):
 
     if latest_tag != current_tag:
         print(
-            "Update available: "
-            f"GitHub release {latest_tag} is newer than local {current_tag}. "
-            "Run `git pull` when convenient."
+            f"New version available: {latest_tag} "
+            f"(current: {current_tag}). "
+            "To update, run: "
+            "`git pull --ff-only && git fetch --tags`."
         )
     else:
         debug_log(debug, "Update check: local release is up to date.")
@@ -936,12 +943,12 @@ def check_for_branch_updates(update_config, debug):
 
     if remote_head and remote_head != local_head:
         print(
-            "Update available: "
-            f"{update_config.remote}/{branch} is newer than local HEAD. "
-            "Run `git pull` when convenient."
+            f"New version available on {update_config.remote}/{branch}. "
+            "To update, run: "
+            "`git pull --ff-only && git fetch --tags`."
         )
     else:
-        debug_log(debug, "Update check: local version is up to date.")
+        debug_log(debug, "Update check: local branch is up to date.")
 
 
 def current_version_tag(timeout_seconds):
@@ -1332,7 +1339,7 @@ def main():
 
     pyautogui.FAILSAFE = True
     pyautogui.PAUSE = 0
-    print("Press Ctrl-C to quit.")
+    print("Activity is running. Press Ctrl-C to quit.")
     debug_log(args.debug, "Debug mode enabled.")
     debug_log(
         args.debug,
@@ -1376,7 +1383,7 @@ def main():
                 args.debug,
                 (
                     "New activity window: "
-                    f"{len(activity_window.moves)} movements over "
+                    f"movements={len(activity_window.moves)}, duration="
                     f"{activity_config.window_seconds:g}s."
                 ),
             )
@@ -1393,7 +1400,10 @@ def main():
             else None
         )
         if scheduled_move:
-            debug_log(args.debug, f"Moving mouse for {scheduled_move.duration:.1f}s.")
+            debug_log(
+                args.debug,
+                f"Moving mouse for {scheduled_move.duration:.1f}s.",
+            )
             moved = move_mouse(
                 scheduled_move.duration,
                 config.mouse,

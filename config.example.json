@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "runtime": {
+    "idle_seconds": 120,
+    "poll_interval_seconds": 1
+  },
+  "activity": {
+    "window_seconds": 600,
+    "min_percent": 1,
+    "max_percent": 40
+  },
+  "mouse": {
+    "enabled": true,
+    "min_move_duration_seconds": 0.8,
+    "max_move_duration_seconds": 8,
+    "wobble_pixels": 35,
+    "cancel_check_interval_seconds": 0.05
+  },
+  "spaces": {
+    "enabled": true,
+    "switch_chance_percent": 35,
+    "switch_step_seconds": 0.8,
+    "same_display_only": true,
+    "monitors": {
+      "*": {
+        "weights": {
+          "app": 3,
+          "browser": 2,
+          "mixed": 2,
+          "empty": 1,
+          "unknown": 1
+        },
+        "app_kinds": {},
+        "browser_apps": [
+          "Arc",
+          "Brave Browser",
+          "Firefox",
+          "Google Chrome",
+          "Microsoft Edge",
+          "Safari",
+          "Yandex",
+          "Yandex Browser"
+        ],
+        "mixed_kind": "mixed",
+        "empty_kind": "empty"
+      }
+    }
+  },
+  "debug": {
+    "window_seconds": 10,
+    "min_percent": 20,
+    "max_percent": 40,
+    "space_switch_chance_percent": 100
+  },
+  "updates": {
+    "check_on_start": true,
+    "strategy": "github_release",
+    "remote": "origin",
+    "branch": "",
+    "timeout_seconds": 3
+  }
+}

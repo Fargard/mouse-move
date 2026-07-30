@@ -78,9 +78,9 @@ Stop with `Ctrl-C`.
 
 ## Config
 
-`config.json` is the local configuration file for the whole script. It is
-created by `install.sh` only when missing and ignored by Git, so each user can
-keep their own settings.
+`config.example.json` is the default example stored in the repository.
+`config.json` is your local configuration file. It is created by `install.sh`
+only when missing and ignored by Git, so each user can keep their own settings.
 
 The running script watches this file and reloads it automatically after you
 save changes. Successful reloads, changed settings, and reload errors are
@@ -96,63 +96,7 @@ Top-level sections:
 - `debug`: faster values used only with `--debug`
 - `updates`: optional startup check for newer code in Git
 
-Example:
-
-```json
-{
-  "version": 1,
-  "runtime": {
-    "idle_seconds": 120,
-    "poll_interval_seconds": 1
-  },
-  "activity": {
-    "window_seconds": 600,
-    "min_percent": 1,
-    "max_percent": 40
-  },
-  "mouse": {
-    "enabled": true,
-    "min_move_duration_seconds": 0.8,
-    "max_move_duration_seconds": 8,
-    "wobble_pixels": 35,
-    "cancel_check_interval_seconds": 0.05
-  },
-  "spaces": {
-    "enabled": true,
-    "switch_chance_percent": 35,
-    "switch_step_seconds": 0.8,
-    "same_display_only": true,
-    "monitors": {
-      "*": {
-        "weights": {
-          "app": 3,
-          "browser": 2,
-          "mixed": 2,
-          "empty": 1,
-          "unknown": 1
-        },
-        "app_kinds": {},
-        "browser_apps": ["Safari", "Google Chrome"],
-        "mixed_kind": "mixed",
-        "empty_kind": "empty"
-      }
-    }
-  },
-  "debug": {
-    "window_seconds": 10,
-    "min_percent": 20,
-    "max_percent": 40,
-    "space_switch_chance_percent": 100
-  },
-  "updates": {
-    "check_on_start": true,
-    "strategy": "github_release",
-    "remote": "origin",
-    "branch": "",
-    "timeout_seconds": 3
-  }
-}
-```
+See `config.example.json` for the complete default config.
 
 ## Activity Settings
 
