@@ -1,6 +1,8 @@
 import argparse
 from dataclasses import dataclass
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import math
 import os
 from pathlib import Path
@@ -32,10 +34,17 @@ DEFAULT_UPDATE_STRATEGY = "github_release"
 DEFAULT_UPDATE_REMOTE = "origin"
 DEFAULT_UPDATE_BRANCH = ""
 DEFAULT_UPDATE_TIMEOUT_SECONDS = 3
+DEFAULT_LOG_ENABLED = True
+DEFAULT_LOG_FILE = "logs/activity.log"
+DEFAULT_LOG_MAX_BYTES = 1_000_000
+DEFAULT_LOG_BACKUP_COUNT = 7
 UPDATE_STRATEGIES = {"github_release", "git_remote_branch"}
 CONFIG_PATH = "config.json"
 POLL_INTERVAL_SECONDS = 1
 SPACE_SWITCH_STEP_SECONDS = 0.8
+COMMAND_OUTPUT_PREVIEW_LENGTH = 500
+LOGGER = logging.getLogger("activity")
+CURRENT_LOG_FILE = None
 
 INPUT_EVENT_TYPES = [
     Quartz.kCGEventLeftMouseDown,
@@ -287,6 +296,14 @@ class UpdateConfig:
 
 
 @dataclass
+class LoggingConfig:
+    enabled: bool
+    file: str
+    max_bytes: int
+    backup_count: int
+
+
+@dataclass
 class AppConfig:
     runtime: RuntimeConfig
     activity: ActivityConfig
@@ -294,6 +311,7 @@ class AppConfig:
     spaces: SpacesRuntimeConfig
     debug: DebugConfig
     updates: UpdateConfig
+    logging: LoggingConfig
 
 
 @dataclass
@@ -513,7 +531,14 @@ class SpaceSwitcher:
 
     def query_json(self, *args):
         output = self.run_yabai(*args, capture_output=True)
-        return json.loads(output)
+        try:
+            return json.loads(output)
+        except json.JSONDecodeError as error:
+            raise RuntimeError(
+                "yabai returned invalid JSON. "
+                f"command: {format_command(['yabai', '-m', *args])}; "
+                f"stdout: {format_command_output(output)}"
+            ) from error
 
     def run_yabai(self, *args, capture_output=False):
         try:
@@ -533,15 +558,44 @@ class SpaceSwitcher:
                 message = (
                     "yabai is installed, but its service is not running. "
                     "Grant yabai Accessibility permission in System Settings, "
-                    "then run `yabai --restart-service`."
+                    "then run `yabai --restart-service`. "
+                    f"stderr: {format_command_output(error.stderr)}"
                 )
-            raise RuntimeError(f"yabai command failed: {message}") from error
+            else:
+                message = (
+                    f"exit code {error.returncode}; "
+                    f"stdout: {format_command_output(error.stdout)}; "
+                    f"stderr: {format_command_output(error.stderr)}"
+                )
+            raise RuntimeError(
+                "yabai command failed. "
+                f"command: {format_command(['yabai', '-m', *args])}; "
+                f"{message}"
+            ) from error
 
         return result.stdout if capture_output else ""
 
 
 def clamp(value, minimum, maximum):
     return max(minimum, min(value, maximum))
+
+
+def format_command(command):
+    return " ".join(command)
+
+
+def format_command_output(output):
+    if output is None:
+        return "<empty>"
+
+    text = str(output).strip()
+    if not text:
+        return "<empty>"
+
+    text = text.replace("\n", "\\n")
+    if len(text) > COMMAND_OUTPUT_PREVIEW_LENGTH:
+        return f"{text[:COMMAND_OUTPUT_PREVIEW_LENGTH]}..."
+    return text
 
 
 def switch_space_by_steps(delta, step_seconds, should_stop):
@@ -751,7 +805,7 @@ def reload_config_if_changed(loaded_config):
     try:
         modified_at = config_path.stat().st_mtime_ns
     except OSError as error:
-        print(f"Could not check config.json: {error}.")
+        report_issue("Could not check config.json.", str(error))
         return loaded_config, False
 
     if modified_at == loaded_config.modified_at:
@@ -760,12 +814,13 @@ def reload_config_if_changed(loaded_config):
     try:
         reloaded_config = load_config()
     except RuntimeError as error:
-        print(
-            "Config reload failed. Keeping the previous valid config. "
-            f"{error}"
+        report_issue(
+            "Config reload failed. Keeping the previous valid config.",
+            str(error),
         )
         return LoadedConfig(loaded_config.config, modified_at), False
 
+    setup_logging(reloaded_config.logging)
     print("Config reloaded. New settings accepted.")
     for change in summarize_config_changes(loaded_config.config, reloaded_config):
         print(f"  {change}")
@@ -853,6 +908,18 @@ def summarize_config_changes(old_config, new_config):
             old_config.updates.timeout_seconds,
             new_config.updates.timeout_seconds,
         ),
+        ("logging.enabled", old_config.logging.enabled, new_config.logging.enabled),
+        ("logging.file", old_config.logging.file, new_config.logging.file),
+        (
+            "logging.max_bytes",
+            old_config.logging.max_bytes,
+            new_config.logging.max_bytes,
+        ),
+        (
+            "logging.backup_count",
+            old_config.logging.backup_count,
+            new_config.logging.backup_count,
+        ),
     ]
     changes = [
         f"{name}: {format_config_value(old_value)} -> {format_config_value(new_value)}"
@@ -872,6 +939,43 @@ def format_config_value(value):
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value)
+
+
+def setup_logging(logging_config):
+    global CURRENT_LOG_FILE
+
+    for handler in LOGGER.handlers:
+        handler.close()
+    LOGGER.handlers.clear()
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
+    CURRENT_LOG_FILE = None
+
+    if not logging_config.enabled:
+        return
+
+    log_path = Path(logging_config.file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(
+        log_path,
+        maxBytes=logging_config.max_bytes,
+        backupCount=logging_config.backup_count,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s"
+    ))
+    LOGGER.addHandler(handler)
+    CURRENT_LOG_FILE = str(log_path)
+
+
+def report_issue(summary, details=None):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    if CURRENT_LOG_FILE:
+        print(f"{timestamp} {summary} Details: {CURRENT_LOG_FILE}")
+    else:
+        print(f"{timestamp} {summary}")
+    LOGGER.warning("%s%s", summary, f" Details: {details}" if details else "")
 
 
 def check_for_updates(update_config, debug):
@@ -1086,6 +1190,7 @@ def parse_config(config):
     spaces = config.get("spaces", {})
     debug = config.get("debug", {})
     updates = config.get("updates", {})
+    logging_config = config.get("logging", {})
 
     runtime_config = RuntimeConfig(
         idle_seconds=number_at(runtime, "idle_seconds", DEFAULT_IDLE_SECONDS),
@@ -1173,6 +1278,20 @@ def parse_config(config):
             DEFAULT_UPDATE_TIMEOUT_SECONDS,
         ),
     )
+    parsed_logging_config = LoggingConfig(
+        enabled=bool_at(logging_config, "enabled", DEFAULT_LOG_ENABLED),
+        file=string_at(logging_config, "file", DEFAULT_LOG_FILE),
+        max_bytes=integer_at(
+            logging_config,
+            "max_bytes",
+            DEFAULT_LOG_MAX_BYTES,
+        ),
+        backup_count=integer_at(
+            logging_config,
+            "backup_count",
+            DEFAULT_LOG_BACKUP_COUNT,
+        ),
+    )
 
     app_config = AppConfig(
         runtime=runtime_config,
@@ -1181,6 +1300,7 @@ def parse_config(config):
         spaces=spaces_config,
         debug=debug_config,
         updates=update_config,
+        logging=parsed_logging_config,
     )
     validate_config(app_config)
     return app_config
@@ -1257,6 +1377,12 @@ def validate_config(config):
         raise ValueError(f"updates.strategy must be one of: {strategies}")
     if config.updates.timeout_seconds <= 0:
         raise ValueError("updates.timeout_seconds must be greater than 0")
+    if config.logging.enabled and not config.logging.file:
+        raise ValueError("logging.file cannot be empty when logging is enabled")
+    if config.logging.max_bytes <= 0:
+        raise ValueError("logging.max_bytes must be greater than 0")
+    if config.logging.backup_count < 0:
+        raise ValueError("logging.backup_count cannot be negative")
 
 
 def validate_activity_config(config, name):
@@ -1325,6 +1451,7 @@ def main():
     config = loaded_config.config
     modes = selected_modes(args, config)
     activity_config = effective_activity_config(config, args.debug)
+    setup_logging(config.logging)
 
     monitor = UserInputMonitor(initial_idle_seconds=config.runtime.idle_seconds)
     try:
@@ -1391,8 +1518,11 @@ def main():
                 try:
                     space_switcher.start_window(now, activity_config.window_seconds)
                 except RuntimeError as error:
-                    print(error)
-                    sys.exit(1)
+                    report_issue(
+                        "Space switching skipped for this window.",
+                        str(error),
+                    )
+                    space_switcher.reset_window()
 
         scheduled_move = (
             activity_window.next_due_move(now)
@@ -1422,8 +1552,9 @@ def main():
                     lambda: is_user_active(monitor, config),
                 )
             except RuntimeError as error:
-                print(error)
-                sys.exit(1)
+                report_issue("Space switching skipped.", str(error))
+                space_switcher.reset_window()
+                continue
             if not switched:
                 activity_window.moves = []
                 space_switcher.reset_window()

@@ -58,5 +58,11 @@
     "remote": "origin",
     "branch": "",
     "timeout_seconds": 3
+  },
+  "logging": {
+    "enabled": true,
+    "file": "logs/activity.log",
+    "max_bytes": 1000000,
+    "backup_count": 7
   }
 }

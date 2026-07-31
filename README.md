@@ -95,6 +95,7 @@ Top-level sections:
 - `spaces`: Space switching frequency, animation timing, and Space weights
 - `debug`: faster values used only with `--debug`
 - `updates`: optional startup check for newer code in Git
+- `logging`: local log file and rotation settings
 
 See `config.example.json` for the complete default config.
 
@@ -227,6 +228,21 @@ to discover the GitHub repository. For `git_remote_branch`, `updates.branch`
 can be left empty to use the current branch, or set to a specific branch name.
 `updates.timeout_seconds` keeps startup from waiting too long if the network is
 slow.
+
+## Logging
+
+`logging.enabled` controls whether runtime warnings are written to a local log
+file. Console output stays short and includes a timestamp plus the log file
+path, while the log file keeps detailed diagnostics.
+
+By default, logs are written to `logs/activity.log`. The installer creates the
+`logs/` directory, and the running script recreates it if needed. The `logs/`
+directory is ignored by Git.
+
+`logging.max_bytes` controls when the current log file is rotated.
+`logging.backup_count` controls how many rotated log files are kept. Rotated
+files use the standard numeric suffix format: `activity.log.1`,
+`activity.log.2`, and so on.
 
 ## Behavior
 

@@ -17,6 +17,13 @@ create_config() {
   cp config.example.json config.json
 }
 
+create_logs_dir() {
+  if [ ! -d logs ]; then
+    echo "Creating logs directory..."
+    mkdir -p logs
+  fi
+}
+
 explain_brew_failure() {
   log_file="$1"
 
@@ -37,6 +44,7 @@ explain_brew_failure() {
 echo "Installing Python dependencies..."
 python3 -m pip install -r requirements.txt
 create_config
+create_logs_dir
 
 if ! command -v brew >/dev/null 2>&1; then
   echo "Homebrew is required to install yabai."
