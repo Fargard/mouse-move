@@ -978,6 +978,21 @@ def report_issue(summary, details=None):
     LOGGER.warning("%s%s", summary, f" Details: {details}" if details else "")
 
 
+def log_runtime_status(message, debug=False, level=logging.INFO):
+    LOGGER.log(level, message)
+    debug_log(debug, message)
+
+
+def report_unhandled_error(error):
+    summary = "Unexpected error. The script stopped."
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    if CURRENT_LOG_FILE:
+        print(f"{timestamp} {summary} Details: {CURRENT_LOG_FILE}")
+    else:
+        print(f"{timestamp} {summary}")
+    LOGGER.exception("Unhandled error: %s", error)
+
+
 def check_for_updates(update_config, debug):
     if not update_config.check_on_start:
         return
@@ -989,9 +1004,10 @@ def check_for_updates(update_config, debug):
         check_for_branch_updates(update_config, debug)
         return
 
-    debug_log(
-        debug,
+    log_runtime_status(
         f"Update check skipped: unknown strategy {update_config.strategy}.",
+        debug,
+        logging.WARNING,
     )
 
 
@@ -1004,11 +1020,18 @@ def check_for_release_updates(update_config, debug):
         )
         latest_tag = latest_github_release_tag(repo, update_config.timeout_seconds)
     except RuntimeError as error:
-        debug_log(debug, f"Update check skipped: {error}")
+        log_runtime_status(
+            f"Update check skipped: {error}",
+            debug,
+            logging.WARNING,
+        )
         return
 
     if not latest_tag:
-        debug_log(debug, "Update check skipped: no GitHub releases found.")
+        log_runtime_status(
+            "Update check skipped: no GitHub releases found.",
+            debug,
+        )
         return
 
     if latest_tag != current_tag:
@@ -1018,8 +1041,9 @@ def check_for_release_updates(update_config, debug):
             "To update, run: "
             "`git pull --ff-only && git fetch --tags`."
         )
+        LOGGER.info("New version available: %s; current: %s", latest_tag, current_tag)
     else:
-        debug_log(debug, "Update check: local release is up to date.")
+        log_runtime_status("Update check: local release is up to date.", debug)
 
 
 def check_for_branch_updates(update_config, debug):
@@ -1033,7 +1057,7 @@ def check_for_branch_updates(update_config, debug):
             update_config.timeout_seconds,
         )
         if branch == "HEAD":
-            debug_log(debug, "Update check skipped: detached HEAD.")
+            log_runtime_status("Update check skipped: detached HEAD.", debug)
             return
 
         remote_head = remote_branch_head(
@@ -1042,7 +1066,11 @@ def check_for_branch_updates(update_config, debug):
             update_config.timeout_seconds,
         )
     except RuntimeError as error:
-        debug_log(debug, f"Update check skipped: {error}")
+        log_runtime_status(
+            f"Update check skipped: {error}",
+            debug,
+            logging.WARNING,
+        )
         return
 
     if remote_head and remote_head != local_head:
@@ -1051,8 +1079,13 @@ def check_for_branch_updates(update_config, debug):
             "To update, run: "
             "`git pull --ff-only && git fetch --tags`."
         )
+        LOGGER.info(
+            "New version available on %s/%s; local HEAD differs.",
+            update_config.remote,
+            branch,
+        )
     else:
-        debug_log(debug, "Update check: local branch is up to date.")
+        log_runtime_status("Update check: local branch is up to date.", debug)
 
 
 def current_version_tag(timeout_seconds):
@@ -1575,4 +1608,8 @@ def stop(signum, frame):
 
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, stop)
-    main()
+    try:
+        main()
+    except Exception as error:
+        report_unhandled_error(error)
+        sys.exit(1)

@@ -234,6 +234,8 @@ slow.
 `logging.enabled` controls whether runtime warnings are written to a local log
 file. Console output stays short and includes a timestamp plus the log file
 path, while the log file keeps detailed diagnostics.
+Unexpected runtime errors are also written to the log with a traceback before
+the script exits.
 
 By default, logs are written to `logs/activity.log`. The installer creates the
 `logs/` directory, and the running script recreates it if needed. The `logs/`
